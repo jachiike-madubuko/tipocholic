@@ -1,0 +1,84 @@
+# Tip Reconciliation, Courtyard Marriott Bozeman
+
+This app decides how much money real people are paid. Treat every change to
+`src/engine.ts` as a payroll change, not a UI change.
+
+## What it does
+
+Reads two Airtable tables and produces a paste-ready block for the Level5 TIPS
+worksheet:
+
+- **POS Tip Summary** gives the tip pool per shift (Business Date + AM/PM).
+- **Handoffs** gives the roster: whoever filed the handoff shares that pool equally.
+
+Pool is split evenly across the handoff roster. That is the whole model.
+
+## Non-negotiable rules
+
+1. **Handoffs are the source of truth for who gets paid.** The schedule is not
+   consulted. It was removed on purpose. Do not reintroduce it as a payment source.
+2. **Cook / BOH handoffs never share tips.** Only `Barista` and `Bartender`.
+3. **Splits must reconcile to the penny.** `splitCents` uses largest remainder with
+   alphabetical tie-breaking so the same input always produces the same output.
+   Never use floating point dollars for money. Everything is integer cents.
+4. **Outstanding Checks > 0 means the report is incomplete**, regardless of the
+   dollar figure. `$33.80 with 8 checks open` is not a small night, it is a
+   mid-shift snapshot. Provisional pools are held out of the export.
+5. **Overrides are always visible.** Any edited amount or roster carries an
+   `EDITED` flag naming the original value. Never make an override silent.
+6. **Money identity:** `pool === ready + held + unassigned`, always. There is a
+   test for this. If it fails, stop.
+7. **Roster order is fixed**, taken from the worksheet rows 4-15. Never sort it.
+   The export pastes at cell A4 and a reordered roster pays the wrong people.
+   Anyone paid who is not on the roster is appended at the bottom, never dropped.
+
+## Architecture
+
+```
+src/engine.ts      pure logic, no React. All money math lives here.
+src/engine.test.ts invariants. Run before every commit.
+src/data.ts        baked-in snapshot + roster order. Fallback when the API is down.
+src/useDataset.ts  fetches /api/tips, falls back to the snapshot, reports which.
+src/App.tsx        UI only. Should hold no money math.
+api/tips.ts        Vercel edge function. Holds the PAT. Server-side only.
+```
+
+Keep money logic out of `App.tsx`. If a calculation is needed for display, add it
+to `engine.ts` where it can be tested.
+
+## Airtable notes that will cost you time otherwise
+
+- Linked-record fields (Handoffs.Squad) return **record IDs** over raw REST, not
+  names. The MCP tool resolves them; the API does not. `api/tips.ts` fetches the
+  Squad table and builds an id -> name map.
+- Single-selects read back as `{ id, name, color }` objects. Write them as plain
+  name strings.
+- Field IDs are stable, field names are not. Always use `returnFieldsByFieldId=true`.
+- Never put the PAT in a `VITE_` variable. That inlines it into the client bundle.
+
+## Base and table IDs
+
+```
+Base            appbhZtJ44f7jvxrB   F&B Inventory
+POS Tip Summary tbl7PjvfuXuy3dTNp
+Handoffs        tblUzMOvoQH7IO2Yp
+Squad           tblTTqZvavztz2pPb
+```
+
+## Known open work
+
+- Overrides live in browser storage only. They survive reloads on one machine and
+  nowhere else. Writing them back to Airtable with a timestamp and reason is the
+  next real feature, and it should land before this is used to defend a payroll
+  decision to anyone.
+- An override sits on top of refreshed POS data. If POS later self-corrects to the
+  same number the manager typed, the EDITED flag persists and implies a change that
+  is no longer a change.
+- Off-roster payouts append below row 15, which pushes the worksheet TOTAL row down.
+  Deliberate: it should be annoying enough to notice.
+
+## Style
+
+No em dashes in UI copy. Numbers use tabular figures with dimmed cents. Fonts are
+Outfit for headings, DM Sans for body, injected in `main.tsx` rather than
+`index.html` because external font links break the single-file bundling step.
