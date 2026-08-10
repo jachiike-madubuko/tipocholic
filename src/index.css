@@ -12,3 +12,46 @@ body {
   margin: 0;
   -webkit-font-smoothing: antialiased;
 }
+
+@keyframes resolve-enter {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes resolve-exit-right {
+  to {
+    opacity: 0;
+    transform: translateX(28%) rotate(6deg) scale(0.96);
+  }
+}
+
+@keyframes resolve-exit-left {
+  to {
+    opacity: 0;
+    transform: translateX(-28%) rotate(-6deg) scale(0.96);
+  }
+}
+
+.resolve-enter {
+  animation: resolve-enter 0.28s ease-out both;
+}
+
+.resolve-exit-right {
+  animation: resolve-exit-right 0.28s ease-in both;
+  pointer-events: none;
+}
+
+.resolve-exit-left {
+  animation: resolve-exit-left 0.28s ease-in both;
+  pointer-events: none;
+}
+
+.resolve-stack-card {
+  transition: transform 0.28s ease, opacity 0.28s ease;
+}

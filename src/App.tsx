@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useDataset } from "./useDataset";
+import { ResolveDeck } from "./ResolveDeck";
 import {
   Decision,
   Row,
@@ -57,9 +58,12 @@ export default function App() {
   const [periodStart, setPeriodStart] = useState("2026-07-26");
   const { data, source } = useDataset();
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
-  const [tab, setTab] = useState<"overview" | "shifts" | "grid">("overview");
+  const [tab, setTab] = useState<"overview" | "shifts" | "grid" | "resolve">("overview");
   const [copied, setCopied] = useState(false);
   const [focus, setFocus] = useState<string | null>(null);
+  const [resolveStartKey, setResolveStartKey] = useState<string | null>(null);
+  const [resolveKeys, setResolveKeys] = useState<string[]>([]);
+  const [resolveEpoch, setResolveEpoch] = useState(0);
 
   const storeKey = `tipdash:${periodStart}`;
 
@@ -113,6 +117,19 @@ export default function App() {
 
   const openTodos = rows.filter((r) => r.worst === 3);
   const edited = rows.filter((r) => r.tipsEdited || r.rosterEdited);
+  const rowsByKey = useMemo(
+    () => Object.fromEntries(rows.map((r) => [r.key, r])),
+    [rows]
+  );
+
+  const openResolve = (key?: string) => {
+    const keys = openTodos.map((r) => r.key);
+    if (key && !keys.includes(key)) keys.unshift(key);
+    setResolveKeys(keys);
+    setResolveStartKey(key ?? null);
+    setResolveEpoch((n) => n + 1);
+    setTab("resolve");
+  };
 
   const cellCents = (p: string, d: string) =>
     pays.filter((x) => x.person === p && x.date === d).reduce((s, x) => s + x.cents, 0);
@@ -203,14 +220,19 @@ export default function App() {
           </div>
 
           <div className="ml-0 flex items-center gap-1 md:ml-6">
-            {([
-              ["overview", "Overview"],
-              ["shifts", "Shifts"],
-              ["grid", "Payout Grid"],
-            ] as const).map(([k, label]) => (
+            {(
+              [
+                ["overview", "Overview"],
+                ["shifts", "Shifts"],
+                ["grid", "Payout Grid"],
+                ...(openTodos.length > 0 || tab === "resolve"
+                  ? ([["resolve", "Resolve"]] as ["resolve", "Resolve"][])
+                  : []),
+              ] as [typeof tab | "resolve", string][]
+            ).map(([k, label]) => (
               <button
                 key={k}
-                onClick={() => setTab(k)}
+                onClick={() => (k === "resolve" ? openResolve() : setTab(k))}
                 className="rounded-full px-4 py-2 text-sm transition"
                 style={{
                   ...HEAD,
@@ -226,12 +248,13 @@ export default function App() {
 
           <div className="ml-auto flex items-center gap-3">
             {openTodos.length > 0 && (
-              <span
-                className="rounded-full px-3 py-1 text-xs font-bold"
+              <button
+                onClick={() => openResolve()}
+                className="rounded-full px-3 py-1 text-xs font-bold transition hover:opacity-90"
                 style={{ background: "#F8B4A8", color: "#5A1D14" }}
               >
                 {openTodos.length} need you
-              </span>
+              </button>
             )}
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-sm text-white">
               JM
@@ -475,13 +498,19 @@ export default function App() {
                       Nothing blocking. Every pool has someone to pay.
                     </div>
                   )}
+                  {openTodos.length > 0 && (
+                    <button
+                      onClick={() => openResolve()}
+                      className="mb-1 w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:opacity-90"
+                      style={{ background: C.mint, color: C.mintInk }}
+                    >
+                      Resolve {openTodos.length} open shift{openTodos.length > 1 ? "s" : ""} →
+                    </button>
+                  )}
                   {openTodos.map((r) => (
                     <button
                       key={r.key}
-                      onClick={() => {
-                        setFocus(r.key);
-                        setTab("shifts");
-                      }}
+                      onClick={() => openResolve(r.key)}
                       className="flex w-full items-center gap-3 rounded-2xl bg-white px-4 py-3 text-left text-sm transition hover:opacity-90"
                       style={{ color: C.ink }}
                     >
@@ -526,6 +555,23 @@ export default function App() {
               </div>
             </div>
           </>
+        )}
+
+        {tab === "resolve" && (
+          <ResolveDeck
+            key={resolveEpoch}
+            rowsByKey={rowsByKey}
+            initialKeys={resolveKeys.length ? resolveKeys : openTodos.map((r) => r.key)}
+            startKey={resolveStartKey}
+            squad={data.squad}
+            onChange={setDec}
+            onReset={(key) => {
+              const next = { ...decisions };
+              delete next[key];
+              save(next);
+            }}
+            onExit={() => setTab("overview")}
+          />
         )}
 
         {tab === "shifts" && (
