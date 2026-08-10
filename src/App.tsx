@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useDataset } from "./useDataset";
 import { ResolveDeck } from "./ResolveDeck";
+import { persistShift } from "./persist";
 import {
   Decision,
   Row,
@@ -56,7 +57,7 @@ function Amt({ cents, size = "", cls = "" }: { cents: number; size?: string; cls
 
 export default function App() {
   const [periodStart, setPeriodStart] = useState("2026-07-26");
-  const { data, source } = useDataset();
+  const { data, source, reload } = useDataset();
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [tab, setTab] = useState<"overview" | "shifts" | "grid" | "resolve">("overview");
   const [copied, setCopied] = useState(false);
@@ -64,6 +65,7 @@ export default function App() {
   const [resolveStartKey, setResolveStartKey] = useState<string | null>(null);
   const [resolveKeys, setResolveKeys] = useState<string[]>([]);
   const [resolveEpoch, setResolveEpoch] = useState(0);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const storeKey = `tipdash:${periodStart}`;
 
@@ -88,6 +90,26 @@ export default function App() {
   };
   const setDec = (key: string, patch: Partial<Decision>) =>
     save({ ...decisions, [key]: { ...decisions[key], ...patch } });
+
+  /** Push the effective tip pool + roster to Airtable, then drop the local overlay. */
+  const commitShift = async (row: Row, reason: string) => {
+    setSaveError(null);
+    await persistShift({
+      date: row.date,
+      shift: row.shift,
+      tips: row.cents / 100,
+      people: row.people,
+      clearProvisional: !!row.pool?.provisional && !row.held,
+      reason,
+    });
+    setDecisions((prev) => {
+      const next = { ...prev };
+      delete next[row.key];
+      window.storage?.set(storeKey, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+    await reload();
+  };
 
   const dates = useMemo(() => periodDates(periodStart), [periodStart]);
   const sheetName = useMemo(() => {
@@ -570,12 +592,23 @@ export default function App() {
               delete next[key];
               save(next);
             }}
+            onConfirm={(row) =>
+              commitShift(row, `resolve confirm ${row.date} ${row.shift}`)
+            }
             onExit={() => setTab("overview")}
           />
         )}
 
         {tab === "shifts" && (
           <div className="space-y-7">
+            {saveError && (
+              <div
+                className="rounded-2xl px-4 py-3 text-sm font-medium"
+                style={{ background: "#FAD9D2", color: "#5A1D14" }}
+              >
+                Airtable save failed: {saveError}
+              </div>
+            )}
             {days.length === 0 && (
               <div className="rounded-3xl bg-white/10 p-8 text-center text-white/60">
                 No handoffs or tip records in this pay period.
@@ -611,6 +644,14 @@ export default function App() {
                         const next = { ...decisions };
                         delete next[r.key];
                         save(next);
+                      }}
+                      onSave={async () => {
+                        try {
+                          await commitShift(r, `shifts save ${r.date} ${r.shift}`);
+                        } catch (e) {
+                          setSaveError((e as Error).message);
+                          throw e;
+                        }
                       }}
                     />
                   ))}
@@ -837,15 +878,19 @@ function ShiftCard({
   focused,
   onChange,
   onReset,
+  onSave,
 }: {
   row: Row;
   squad: string[];
   focused: boolean;
   onChange: (patch: Partial<Decision>) => void;
   onReset: () => void;
+  onSave: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setDraft((row.cents / 100).toFixed(2));
@@ -868,8 +913,27 @@ function ShiftCard({
   };
 
   const bump = (delta: number) => {
-    const n = Math.max(0, Math.round((row.cents + delta * 100)) / 100);
+    const n = Math.max(0, Math.round(row.cents + delta * 100) / 100);
     onChange({ tips: n });
+  };
+
+  const closeEditor = async () => {
+    const dirty =
+      row.tipsEdited || row.rosterEdited || (!!row.pool?.provisional && !row.held);
+    if (!dirty) {
+      setOpen(false);
+      return;
+    }
+    setSaving(true);
+    setErr(null);
+    try {
+      await onSave();
+      setSaving(false);
+      setOpen(false);
+    } catch (e) {
+      setSaving(false);
+      setErr((e as Error).message);
+    }
   };
 
   return (
@@ -898,11 +962,12 @@ function ShiftCard({
           </span>
         )}
         <button
-          onClick={() => setOpen(!open)}
-          className="ml-auto rounded-full px-3 py-1.5 text-xs font-medium transition"
+          onClick={() => (open ? void closeEditor() : setOpen(true))}
+          disabled={saving}
+          className="ml-auto rounded-full px-3 py-1.5 text-xs font-medium transition disabled:opacity-50"
           style={{ background: open ? C.ink : "#EEF3F7", color: open ? "#fff" : C.ink }}
         >
-          {open ? "Done" : "Edit"}
+          {open ? (saving ? "Saving…" : edited ? "Save to Airtable" : "Done") : "Edit"}
         </button>
       </div>
 
@@ -1065,7 +1130,13 @@ function ShiftCard({
                 Reset to source
               </button>
             )}
-            <span className="ml-auto text-[11px] opacity-45">Changes save automatically</span>
+            <span className="ml-auto text-[11px] opacity-45">
+              {err ? (
+                <span style={{ color: "#5A1D14" }}>{err}</span>
+              ) : (
+                "Save writes tips + roster to Airtable"
+              )}
+            </span>
           </div>
         </div>
       )}

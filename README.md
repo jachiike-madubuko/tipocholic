@@ -34,8 +34,12 @@ npx vercel env add AIRTABLE_BASE_ID   # appbhZtJ44f7jvxrB
 npx vercel --prod
 ```
 
-The PAT needs `data.records:read` and `schema.bases:read` on the F&B Inventory
-base. It stays server-side. Do not prefix it with `VITE_`.
+The PAT needs `data.records:read`, `data.records:write`, and `schema.bases:read`
+on the F&B Inventory base. It stays server-side. Do not prefix it with `VITE_`.
+
+Confirm in Resolve (and Save to Airtable on Shifts) writes tip amounts to
+**POS Tip Summary** and assigned people to **Handoffs.Squad**, with a timestamped
+line in Notes / Submit Log.
 
 ---
 

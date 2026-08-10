@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Dataset, SNAPSHOT } from "./data";
 
 export type Source = "live" | "snapshot" | "loading";
@@ -14,13 +14,16 @@ export function useDataset(periodStart?: string) {
   const [data, setData] = useState<Dataset>(SNAPSHOT);
   const [source, setSource] = useState<Source>("loading");
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  const reload = useCallback(() => setTick((n) => n + 1), []);
 
   useEffect(() => {
     let live = true;
     (async () => {
       try {
         const qs = periodStart ? `?start=${periodStart}` : "";
-        const res = await fetch(`/api/tips${qs}`);
+        const res = await fetch(`/api/tips${qs}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`API ${res.status}`);
         const json = (await res.json()) as Dataset & { error?: string };
         if (json.error) throw new Error(json.error);
@@ -41,7 +44,7 @@ export function useDataset(periodStart?: string) {
     return () => {
       live = false;
     };
-  }, [periodStart]);
+  }, [periodStart, tick]);
 
-  return { data, source, error };
+  return { data, source, error, reload };
 }

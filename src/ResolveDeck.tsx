@@ -33,10 +33,12 @@ function canConfirm(row: Row) {
   return row.worst < 3;
 }
 
-function confirmHint(row: Row) {
+function confirmHint(row: Row, saving: boolean, saveError: string | null) {
+  if (saving) return "Writing to Airtable…";
+  if (saveError) return saveError;
   if (row.held) return "Enter the settled amount or release the provisional pool.";
   if (row.cents > 0 && row.people.length === 0) return "Pick who shares this pool, then confirm.";
-  return "Ready to confirm.";
+  return "Confirm writes tips and roster to Airtable.";
 }
 
 export function ResolveDeck({
@@ -46,6 +48,7 @@ export function ResolveDeck({
   squad,
   onChange,
   onReset,
+  onConfirm,
   onExit,
 }: {
   rowsByKey: Record<string, Row>;
@@ -55,6 +58,8 @@ export function ResolveDeck({
   squad: string[];
   onChange: (key: string, patch: Partial<Decision>) => void;
   onReset: (key: string) => void;
+  /** Persist the effective tip pool + roster to Airtable, then refresh. */
+  onConfirm: (row: Row) => Promise<void>;
   onExit: () => void;
 }) {
   const [keys] = useState(initialKeys);
@@ -65,6 +70,8 @@ export function ResolveDeck({
   });
   const [exitDir, setExitDir] = useState<"left" | "right" | null>(null);
   const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const remaining = useMemo(() => keys.slice(cursor), [keys, cursor]);
   const currentKey = remaining[0] ?? null;
@@ -72,11 +79,14 @@ export function ResolveDeck({
   const behind = remaining.slice(1, 3).map((k) => rowsByKey[k]).filter(Boolean) as Row[];
 
   useEffect(() => {
-    if (current) setDraft((current.cents / 100).toFixed(2));
+    if (current) {
+      setDraft((current.cents / 100).toFixed(2));
+      setSaveError(null);
+    }
   }, [current?.key, current?.cents]);
 
   const advance = (dir: "left" | "right") => {
-    if (!current || exitDir) return;
+    if (!current || exitDir || saving) return;
     setExitDir(dir);
     window.setTimeout(() => {
       setExitDir(null);
@@ -84,13 +94,22 @@ export function ResolveDeck({
     }, 280);
   };
 
-  const confirm = () => {
-    if (!current || !canConfirm(current)) return;
-    advance("right");
+  const confirm = async () => {
+    if (!current || !canConfirm(current) || saving || exitDir) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onConfirm(current);
+      setSaving(false);
+      advance("right");
+    } catch (e) {
+      setSaving(false);
+      setSaveError((e as Error).message);
+    }
   };
 
   const skip = () => {
-    if (!current) return;
+    if (!current || saving) return;
     advance("left");
   };
 
@@ -397,23 +416,28 @@ export function ResolveDeck({
             </div>
 
             <div className="border-t border-black/5 px-5 py-4">
-              <p className="mb-3 text-center text-xs opacity-45">{confirmHint(current)}</p>
+              <p
+                className="mb-3 text-center text-xs"
+                style={{ color: saveError ? "#5A1D14" : undefined, opacity: saveError ? 1 : 0.45 }}
+              >
+                {confirmHint(current, saving, saveError)}
+              </p>
               <div className="flex gap-3">
                 <button
                   onClick={skip}
-                  disabled={!!exitDir}
+                  disabled={!!exitDir || saving}
                   className="flex-1 rounded-full py-3.5 text-sm font-semibold transition disabled:opacity-30"
                   style={{ background: "#EEF3F7", color: C.ink }}
                 >
                   Skip
                 </button>
                 <button
-                  onClick={confirm}
-                  disabled={!ready || !!exitDir}
+                  onClick={() => void confirm()}
+                  disabled={!ready || !!exitDir || saving}
                   className="flex-[1.4] rounded-full py-3.5 text-sm font-semibold text-white transition disabled:opacity-35"
-                  style={{ background: ready ? "#2E9E63" : "#9BB0BB" }}
+                  style={{ background: ready && !saving ? "#2E9E63" : "#9BB0BB" }}
                 >
-                  Confirm
+                  {saving ? "Saving…" : "Confirm"}
                 </button>
               </div>
             </div>

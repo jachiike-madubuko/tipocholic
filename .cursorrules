@@ -55,6 +55,7 @@ to `engine.ts` where it can be tested.
   name strings.
 - Field IDs are stable, field names are not. Always use `returnFieldsByFieldId=true`.
 - Never put the PAT in a `VITE_` variable. That inlines it into the client bundle.
+- The PAT also needs `data.records:write` for Resolve / Shifts save-back.
 
 ## Base and table IDs
 
