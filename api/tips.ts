@@ -172,7 +172,7 @@ export default async function handler(req: Request): Promise<Response> {
     return Response.json(
       {
         pulledAt: new Date().toISOString().slice(0, 10),
-        periodStart: start ?? pools.at(-1)?.date ?? ROSTER[0],
+        periodStart: start ?? pools[pools.length - 1]?.date ?? ROSTER[0],
         pools,
         handoffs,
         squad: [...ROSTER, ...extra],
